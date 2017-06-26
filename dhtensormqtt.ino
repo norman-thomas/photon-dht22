@@ -19,35 +19,26 @@ String myName = "";
 
 void callback(char* topic, byte* payload, unsigned int length);
 
-/**
- * if want to use IP address,
- * byte server[] = { XXX,XXX,XXX,XXX };
- * MQTT client(server, 1883, callback);
- * want to use domain name,
- * MQTT client("www.sample.com", 1883, callback);
- **/
-byte server[] = { 192, 168, 178, 1 };
-MQTT client(server, 1883, callback);
+MQTT client("SERVER", 1883, 120, callback);
 
 // for QoS2 MQTTPUBREL message.
 // this messageid maybe have store list or array structure.
 uint16_t qos2messageid = 0;
 
-// recieve message
-void callback(char* topic, byte* payload, unsigned int length) {
-    char p[length + 1];
-    memcpy(p, payload, length);
-    p[length] = NULL;
+void publish() {
+    client.publish(myName + "/temperature", String(temperature));
+    client.publish(myName + "/humidity", String(humidity));
+    client.publish(myName + "/dewPoint", String(dewPoint));
+    client.publish(myName + "/dewPointSlow", String(dewPointSlow));
+    
+    String json_condition = "{ \"temperature\": " + String(temperature) + ", \"humidity\": " + String(humidity) + ", \"dewPoint\":" + String(dewPoint) + ", \"dewPointSlow\":" + String(dewPointSlow) + " }";
+    Particle.publish("/" + myName + "/json_condition", json_condition, 60, PRIVATE);
+}
 
-    if (!strcmp(p, "RED"))
-        RGB.color(255, 0, 0);
-    else if (!strcmp(p, "GREEN"))
-        RGB.color(0, 255, 0);
-    else if (!strcmp(p, "BLUE"))
-        RGB.color(0, 0, 255);
-    else
-        RGB.color(255, 255, 255);
-    delay(1000);
+// receive message
+void callback(char* topic, byte* payload, unsigned int length) {
+    publish();
+    delay(500);
 }
 
 // QOS ack callback.
@@ -81,10 +72,12 @@ void setup() {
     Particle.publish("spark/device/name");
     
     // connect to the server
-    client.connect("sparkclient");
+    client.connect(System.deviceID());
 
     // add qos callback. If don't add qoscallback, ACK message from MQTT server is ignored.
     client.addQosCallback(qoscallback);
+    
+    client.subscribe(myName + "/refresh");
 }
 
 float roundReading(float reading) {
@@ -111,13 +104,13 @@ void loop() {
     
     if (myName.length() > 0)
     {
-        client.publish(myName + "/temperature", String(temperature));
-        client.publish(myName + "/humidity", String(humidity));
-        client.publish(myName + "/dewPoint", String(dewPoint));
-        client.publish(myName + "/dewPointSlow", String(dewPointSlow));
-            
-        String json_condition = "{ \"temperature\": " + String(temperature) + ", \"humidity\": " + String(humidity) + ", \"dewPoint\":" + String(dewPoint) + ", \"dewPointSlow\":" + String(dewPointSlow) + " }";
-        Particle.publish("/" + myName + "/json_condition", json_condition, 60, PRIVATE);
+        if (!client.isConnected())
+        {
+            Particle.publish("/" + myName + "/mqtt", "reconnecting to MQTT server", 60, PRIVATE);
+            client.connect(System.deviceID());
+        }
+        
+        publish();
     }
     
     count = (count + 1) % 2;
